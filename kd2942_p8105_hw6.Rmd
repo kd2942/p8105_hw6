@@ -1,0 +1,6 @@
+---
+title: "p8105 Hw#6"
+author: "Kaylin De Silva"
+date: 12-02-2024
+output: github_document
+---

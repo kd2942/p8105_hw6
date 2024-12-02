@@ -17,7 +17,7 @@ set.seed(1)
 This chunk loads the tidyverse, rvest, and dplyr libraries and fixes the output. 
 
 **Problem 2**
-```{r loading dataset}
+```{r loading dataset problem 2}
 #loading csv
 raw_washington_df = read.csv(file = "./homicide-data.csv")
 

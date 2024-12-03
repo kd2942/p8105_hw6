@@ -16,6 +16,69 @@ set.seed(1)
 ```
 This chunk loads the tidyverse, rvest, and dplyr libraries and fixes the output. 
 
+**Problem 1**
+```{r loading datset problem 1}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+```{r bootstrapping}
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+
+boot_sample(weather_df) |> 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm")
+
+boot_straps = 
+  tibble(strap_number = 1:5000) |> 
+  mutate(
+    strap_sample = map(strap_number, \(i) boot_sample(df = weather_df))
+  )
+
+boot_straps
+```
+
+```{r}
+boot_straps |> 
+  slice(1:5) |> 
+  unnest(strap_sample) |> 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm", se = FALSE) +
+  facet_grid(~strap_number) 
+```
+
+```{r summarizing bootstrapping results}
+bootstrap_results = 
+  boot_straps |> 
+  mutate(
+    models = map(strap_sample, \(df) lm(tmax ~ tmin, data = df) ),
+    results = map(models, broom::tidy)) |> 
+  select(-strap_sample, -models) |> 
+  unnest(results) 
+
+bootstrap_results |> 
+  group_by(term) |> 
+  summarize(
+    boot_se = sd(estimate),
+    ci_lower = quantile(estimate, 0.025), 
+    ci_upper = quantile(estimate, 0.975))|> 
+  knitr::kable(digits = 3)
+```
+__Unfortutantely did not have time to complete problem #1__
+
 **Problem 2**
 ```{r loading dataset problem 2}
 #loading csv
@@ -113,7 +176,7 @@ nest_glm_city_state |>
 The plot highlights the variety of confidence interval widths, with wider intervals occurring at the lower and higher OR values. It also makes it evident that around half of the ORs have confidence intervals that include the null value of 1, indicating that though almost all estimates are greater than 1, they are not all statistically significant. 
 
 **Problem 3**
-```{r loading dataset}
+```{r loading dataset for problem 3}
 #loading csv
 raw_birthweight_df = read.csv(file = "./birthweight.csv")
 
@@ -123,7 +186,7 @@ head(raw_birthweight_df)
 The data set has 4,342 observations and 20 variables. 
 
 ```{r tidying data set for analysis}
-#mutating mother's race, baby sex, father's race, baby length, and mother's pre-pregnany weight for analysis
+#mutating mother's race, baby sex, father's race, baby length, and mother's pre-pregnancy weight for analysis
 birthweight_df = raw_birthweight_df |>
   mutate(
     mrace = 
@@ -154,13 +217,16 @@ birthweight_df = raw_birthweight_df |>
 
 str(birthweight_df)
 ```
+This chunk tidies and manipulates the dataset so it can be analyzed in a meaningful manner. It also mutates the variables into variable types (i.e. factor and numeric variables) that allow them to be involved in the regression model. 
 
-```{r}
+```{r proposing a regression model}
+#proposing a model
 birthweight_df = as.data.frame(birthweight_df)
 birthweight_fit = 
   birthweight_df |>
-  lm(bwt ~ babysex + gaweeks + ppwt + blength + blength*gaweeks, data =_)
+  lm(bwt ~ gaweeks + ppwt + blength + blength*gaweeks, data =_)
 
+#saving the output from the regression and putting it in a table
 birthweight_fit |> 
   broom::tidy() |> 
   mutate(
@@ -170,14 +236,17 @@ birthweight_fit |>
   select(term, log_OR = estimate, OR, p.value, CI_upper, CI_lower) |> 
   knitr::kable(digits = 3)
 ```
+The proposed model involves a predictor and confounder variables that were selected based on knowledge about what affects a baby's birthweight. Gestational age (in weeks) is considered the predictor variable in this model because it is amongst the most obvious of factors that contribute to the baby's weight. The mother's weight (pre-pregnancy) was included because genetics are another factor that would contribute to a baby's birthweight, and its association with both birthweight and gestational age would make it a confounder. The baby's length would also be associated with the gestational age and birthweight, making it another confounder. As there would likely be interaction between birth length and gestational age, an interaction term was included in the model. 
 
-```{r}
+```{r predictions vs residuals}
+#calculating residuals and predictions
 birthweight_df <- birthweight_df |> 
   add_predictions(birthweight_fit) |>  
   add_residuals(birthweight_fit)|>
   mutate(type = 
            if_else(!is.na(resid), "Residual", "Prediction"))
 
+#plotting residuals vs predictions for proposed model
 birthweight_df |>
   ggplot(aes(y=resid, x=pred)) +
     geom_point() +
@@ -186,12 +255,15 @@ birthweight_df |>
     x = "Predictions",
     y = "Residuals")
 ```
+This model appears to be generally well-fitting, as there is an even spread of points across the x-axis,  but there appear to be outliers present (indicated by the points at the top left quadrant of the graph. 
 
-```{r}
+```{r model using length at birth and gestational age as predictors}
+#fitting model
 length_age_fit = 
   birthweight_df |>
   lm(bwt ~ gaweeks + blength, data =_)
 
+#saving output in table
 length_age_fit |> 
   broom::tidy() |> 
   mutate(
@@ -202,11 +274,13 @@ length_age_fit |>
   knitr::kable(digits = 3)
 ```
 
-```{r}
+```{r model using head circumference, length, sex, and all interactions }
+#fitting model and creating interaction terms
 interaction_fit = 
   birthweight_df |>
   lm(bwt ~ bhead + blength + babysex + babysex*blength + babysex*bhead + blength*bhead + blength*bhead*babysex, data =_)
 
+#saving output in table 
 interaction_fit |> 
   broom::tidy() |> 
   mutate(
@@ -217,15 +291,13 @@ interaction_fit |>
   knitr::kable(digits = 3)
 ```
 
-```{r}
+```{r comparison in terms of the cross-validated prediction error}
 cv_df =
   crossv_mc(birthweight_df, 100) |> 
   mutate(
     train = map(train, as_tibble),
     test = map(test, as_tibble))
-```
 
-```{r}
 cv_df = 
   cv_df |> 
   mutate(
@@ -238,7 +310,7 @@ cv_df =
     rmse_interaction = map2_dbl(interaction_fit, test, \(mod, df) rmse(model = mod, data = df)))
 ```
 
-```{r}
+```{r plotting comparison}
 cv_df |> 
   select(starts_with("rmse")) |> 
   pivot_longer(
@@ -249,4 +321,4 @@ cv_df |>
   mutate(model = fct_inorder(model)) |> 
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
-Model with interaction terms (including three level interaction) has a little more predictive accuracy. 
+Model with interaction terms (including three level interaction) has more predictive accuracy. Original proposed model is a little more accurate than length + gestation  age model, but the model with three level interaction is the most accurate.
